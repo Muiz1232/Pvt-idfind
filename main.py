@@ -1,5 +1,6 @@
-from fastapi import FastAPI, HTTPException
+from fastapi import FastAPI, HTTPException, Query
 from pyrogram import Client
+from pyrogram.errors import UsernameNotOccupied, PeerIdInvalid, FloodWait, RPCError
 from pydantic import BaseModel
 import os
 
@@ -17,15 +18,38 @@ class UsernameResponse(BaseModel):
     username: str
     chat_id: int
 
+# FastAPI lifecycle events to start and stop the Pyrogram client
+@app.on_event("startup")
+async def startup():
+    """Start the Pyrogram client when the FastAPI app starts."""
+    await client.start()
+
+@app.on_event("shutdown")
+async def shutdown():
+    """Stop the Pyrogram client when the FastAPI app shuts down."""
+    await client.stop()
+
 @app.get("/get_chat_id", response_model=UsernameResponse)
-async def get_chat_id(username: str):
-    """Get the chat ID for the provided username."""
+async def get_chat_id(username: str = Query(..., min_length=5, max_length=32)):
+    """
+    Get the chat ID for the provided username.
+    Includes error handling for username not found, invalid format, and other exceptions.
+    """
     try:
         # Fetch chat information using Pyrogram
         chat = await client.get_chat(username)
         return {"username": username, "chat_id": chat.id}
+
+    except UsernameNotOccupied:
+        raise HTTPException(status_code=404, detail=f"Username '{username}' does not exist or is not valid.")
+    except PeerIdInvalid:
+        raise HTTPException(status_code=403, detail=f"Username '{username}' is private or the bot cannot access it.")
+    except FloodWait as e:
+        raise HTTPException(status_code=429, detail=f"Flood wait. Please try again in {e.x} seconds.")
+    except RPCError as e:
+        raise HTTPException(status_code=500, detail=f"Telegram API error: {str(e)}")
     except Exception as e:
-        raise HTTPException(status_code=404, detail=f"Error fetching chat: {str(e)}")
+        raise HTTPException(status_code=500, detail=f"Unexpected error: {str(e)}")
 
 # Run the FastAPI app using uvicorn when deployed in Vercel
 if __name__ == "__main__":
