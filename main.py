@@ -20,8 +20,8 @@ class UsernameResponse(BaseModel):
     chat_id: int
 
 def create_client():
-    """Helper function to create a new Pyrogram client."""
-    return Client("my_bot", api_id=api_id, api_hash=api_hash, bot_token=bot_token)
+    """Helper function to create a new Pyrogram client with an in-memory database."""
+    return Client("my_bot", api_id=api_id, api_hash=api_hash, bot_token=bot_token, session_name=":memory:")
 
 @app.on_event("startup")
 async def startup():
