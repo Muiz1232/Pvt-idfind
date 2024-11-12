@@ -18,11 +18,13 @@ class UsernameResponse(BaseModel):
     username: str
     chat_id: int
 
-# FastAPI lifecycle events to start and stop the Pyrogram client
 @app.on_event("startup")
 async def startup():
     """Start the Pyrogram client when the FastAPI app starts."""
-    await client.start()
+    try:
+        await client.start()  # Start the client asynchronously
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Error starting Pyrogram client: {str(e)}")
 
 @app.on_event("shutdown")
 async def shutdown():
