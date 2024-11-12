@@ -4,20 +4,22 @@ from pyrogram.errors import UsernameNotOccupied, PeerIdInvalid, FloodWait, RPCEr
 from pydantic import BaseModel
 import os
 
+# FastAPI app
 app = FastAPI()
 
-# Replace with your actual API ID, API hash, and Bot Token (if you're using a bot).
-api_id = os.getenv('API_ID')  # or hardcode the value
-api_hash = os.getenv('API_HASH')  # or hardcode the value
-bot_token = os.getenv('BOT_TOKEN')  # or hardcode the value
+# Retrieve environment variables for the Telegram bot
+api_id = os.getenv('API_ID')  # Telegram API ID
+api_hash = os.getenv('API_HASH')  # Telegram API Hash
+bot_token = os.getenv('BOT_TOKEN')  # Bot Token for authentication
 
-# Initialize the Pyrogram client
+# Initialize the Pyrogram Client
 client = Client("my_bot", api_id=api_id, api_hash=api_hash, bot_token=bot_token)
 
 class UsernameResponse(BaseModel):
     username: str
     chat_id: int
 
+# FastAPI lifecycle events
 @app.on_event("startup")
 async def startup():
     """Start the Pyrogram client when the FastAPI app starts."""
@@ -53,7 +55,7 @@ async def get_chat_id(username: str = Query(..., min_length=5, max_length=32)):
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Unexpected error: {str(e)}")
 
-# Run the FastAPI app using uvicorn when deployed in Vercel
+# Run the FastAPI app with uvicorn when deployed
 if __name__ == "__main__":
     import uvicorn
     uvicorn.run(app, host="0.0.0.0", port=8000)
