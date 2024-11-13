@@ -1,5 +1,5 @@
-Flask==2.3.2
-pyrogram==2.0.106
-asyncio==3.4.3
-requests==2.31.0
-Werkzeug==2.3.2
+Flask
+pyrogram
+asyncio
+requests
+Werkzeug
