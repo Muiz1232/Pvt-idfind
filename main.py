@@ -1,73 +1,139 @@
-from fastapi import FastAPI, HTTPException, Query
-from pyrogram import Client
-from pyrogram.errors import UsernameNotOccupied, PeerIdInvalid, FloodWait, RPCError
-from pydantic import BaseModel
-import os
+import logging
+from pyrogram import Client, errors, enums
+from flask import Flask, request, jsonify
+import threading
+import re
+from collections import OrderedDict
+import asyncio  # To manage async functions within Flask
+from typing import Union, Dict
 
-# FastAPI app instance
-app = FastAPI()
+# Initialize Flask app
+vj = Flask(__name__)
 
-# Fetch environment variables for Telegram API credentials
-api_id = os.getenv('API_ID')  # Your Telegram API ID
-api_hash = os.getenv('API_HASH')  # Your Telegram API Hash
-bot_token = os.getenv('BOT_TOKEN')  # Your Bot Token
+# Set up the logging
+logging.basicConfig(
+    level=logging.INFO,
+    format="%(asctime)s | %(levelname)s | %(name)s | %(message)s",
+    handlers=[
+        logging.StreamHandler(),
+    ]
+)
 
-# This is a global client instance that we will reinitialize on each request
-client = None
+# Pyrogram client configuration
+API_ID = "26183755"  # Replace with your actual API ID
+API_HASH = "7b7cfa427476172beb5ef3815209b747"  # Replace with your actual API Hash
+BOT_TOKEN = "7822172731:AAGSM4fQkTDVY-UylzSGOH2oqpv4XGrt-j0"  # Replace with your bot token
 
-class UsernameResponse(BaseModel):
-    username: str
-    chat_id: int
+app = Client(
+    name="my_bot",
+    api_id=API_ID,
+    api_hash=API_HASH,
+    bot_token=BOT_TOKEN,
+)
 
-def create_client():
-    """Helper function to create a new Pyrogram client with an in-memory database."""
-    return Client("my_bot", api_id=api_id, api_hash=api_hash, bot_token=bot_token, session_name=":memory:")
+async def get_id_by_username(client: Client, username: str) -> Dict[str, Union[str, int]]:
+    """Get chat ID by username and return simplified chat information."""
+    
+    # Validate the username format using a regex
+    username_regex = r"(?:@|t\.me\/|https:\/\/t\.me\/)([a-zA-Z][a-zA-Z0-9_]{2,})"
+    match = re.match(username_regex, username)
+    
+    if not match:
+        return OrderedDict([
+            ("status", "false"),
+            ("error", "Invalid username format.")
+        ])
 
-@app.on_event("startup")
-async def startup():
-    """Initialize the client at the start of the application."""
-    global client
-    client = create_client()
-    try:
-        await client.start()
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Error starting Pyrogram client: {str(e)}")
-
-@app.on_event("shutdown")
-async def shutdown():
-    """Clean up the Pyrogram client when the app shuts down."""
-    global client
-    if client:
-        await client.stop()
-
-@app.get("/get_chat_id", response_model=UsernameResponse)
-async def get_chat_id(username: str = Query(..., min_length=5, max_length=32)):
-    """
-    Get the chat ID for the provided username.
-    Handles errors like username not found, invalid format, etc.
-    """
-    global client
-    if not client:
-        client = create_client()
-        await client.start()  # Ensure client is started before use
+    username = match.group(1)
 
     try:
-        # Fetch the chat information using Pyrogram
+        # Fetch the chat info
         chat = await client.get_chat(username)
-        return {"username": username, "chat_id": chat.id}
-
-    except UsernameNotOccupied:
-        raise HTTPException(status_code=404, detail=f"Username '{username}' does not exist or is invalid.")
-    except PeerIdInvalid:
-        raise HTTPException(status_code=403, detail=f"Username '{username}' is private or the bot cannot access it.")
-    except FloodWait as e:
-        raise HTTPException(status_code=429, detail=f"Flood wait. Please try again in {e.x} seconds.")
-    except RPCError as e:
-        raise HTTPException(status_code=500, detail=f"Telegram API error: {str(e)}")
+        return OrderedDict([
+            ("status", "true"),
+            ("chat_id", chat.id),
+            ("name", chat.title or chat.first_name or chat.username or "N/A")
+        ])
+        
+    except errors.UsernameNotOccupied:
+        return OrderedDict([
+            ("status", "false"),
+            ("error", "Username not in use.")
+        ])
+    except errors.UsernameInvalid:
+        return OrderedDict([
+            ("status", "false"),
+            ("error", "Invalid username.")
+        ])
+    except errors.BadRequest as e:
+        return OrderedDict([
+            ("status", "false"),
+            ("error", f"Bad request: {str(e)}")
+        ])
     except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Unexpected error: {str(e)}")
+        logging.error(f"Error fetching chat: {e}")
+        return OrderedDict([
+            ("status", "false"),
+            ("error", "An error occurred.")
+        ])
 
-# To allow Vercel to run the app, we need to define the entry point.
+@vj.route('/', methods=['GET'])
+def get_user_id():
+    """Flask route to handle username to ID conversion."""
+    username = request.args.get('username')
+
+    if not username:
+        return jsonify(OrderedDict([
+            ("status", "false"),
+            ("error", "Username is required")
+        ])), 400
+
+    try:
+        loop = app.loop
+        future = asyncio.run_coroutine_threadsafe(
+            get_id_by_username(app, username), loop
+        )
+        chat_info = future.result()
+
+        return jsonify(chat_info)
+
+    except RuntimeError:
+        logging.error("No running event loop found.")
+        return jsonify(OrderedDict([
+            ("status", "false"),
+            ("error", "Internal server error")
+        ])), 500
+    except Exception as e:
+        logging.error(f"Error processing request: {e}")
+        return jsonify(OrderedDict([
+            ("status", "false"),
+            ("error", "Internal server error")
+        ])), 500
+
+def run_flask():
+    """Function to start the Flask server."""
+    loop = asyncio.new_event_loop()
+    asyncio.set_event_loop(loop)
+    from werkzeug.serving import run_simple
+    run_simple('0.0.0.0', 8000, vj, use_reloader=False, use_debugger=False)
+
+def main():
+    """Main function to start both Flask and Pyrogram client."""
+    loop = asyncio.get_event_loop()
+
+    flask_thread = threading.Thread(target=run_flask, daemon=True)
+    flask_thread.start()
+
+    try:
+        logging.info("Starting the Pyrogram client...")
+        app.start()
+        logging.info("Pyrogram client started successfully.")
+        loop.run_forever()
+    except Exception as e:
+        logging.error(f"Error during Pyrogram client startup: {e}")
+    finally:
+        app.stop()
+        logging.info("Pyrogram client stopped.")
+
 if __name__ == "__main__":
-    import uvicorn
-    uvicorn.run(app, host="0.0.0.0", port=8000)
+    main()
