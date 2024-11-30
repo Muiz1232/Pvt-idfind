@@ -22,7 +22,7 @@ logging.basicConfig(
 # Pyrogram client configuration
 API_ID = "26183755"  # Replace with your actual API ID
 API_HASH = "7b7cfa427476172beb5ef3815209b747"  # Replace with your actual API Hash
-BOT_TOKEN = "8081051966:AAFyF8Iq5NxG8EsE_4i10fuawJKvWaTKcrM"  # Replace with your bot token
+BOT_TOKEN = "7879344121:AAF2_RTxClSdGX32jfo8OalF2zY-4x89Nvo"  # Replace with your bot token
 
 app = Client(
     name="my_bot",
