@@ -4,7 +4,7 @@ from flask import Flask, request, jsonify
 import threading
 import re
 from collections import OrderedDict
-import asyncio  # To manage async functions within Flask
+import asyncio
 from typing import Union, Dict
 
 # Initialize Flask app
@@ -31,17 +31,16 @@ app = Client(
     bot_token=BOT_TOKEN,
 )
 
-async def get_id_by_username(client: Client, username: str) -> Dict[str, Union[str, int]]:
-    """Get chat ID by username and return simplified chat information."""
-    
+async def get_chat_details(client: Client, username: str) -> Dict[str, Union[str, int]]:
+    """Get chat details by username and provide a detailed response."""
     # Validate the username format using a regex
     username_regex = r"(?:@|t\.me\/|https:\/\/t\.me\/)([a-zA-Z][a-zA-Z0-9_]{2,})"
     match = re.match(username_regex, username)
-    
+
     if not match:
         return OrderedDict([
             ("status", "false"),
-            ("error", "Invalid username format.")
+            ("error", "Invalid username format."),
         ])
 
     username = match.group(1)
@@ -49,32 +48,62 @@ async def get_id_by_username(client: Client, username: str) -> Dict[str, Union[s
     try:
         # Fetch the chat info
         chat = await client.get_chat(username)
-        return OrderedDict([
+        print(chat)
+        # Organize chat details
+        response = OrderedDict([
             ("status", "true"),
             ("chat_id", chat.id),
-            ("name", chat.title or chat.first_name or chat.username or "N/A")
+            ("chat_type", chat.type.value if chat.type else "unknown"),
+            ("name", chat.title or chat.first_name or chat.username or "N/A"),
+            ("username", chat.username or "N/A"),
+            ("bio", getattr(chat, "bio", "N/A")),
+            ("is_verified", chat.is_verified),
+            ("is_restricted", chat.is_restricted),
+            ("is_scam", chat.is_scam),
+            ("is_fake", chat.is_fake),
+            ("is_support", chat.is_support),
+            # ("is_premium", getattr(chat, "is_premium", False)),
+            ("profile_photo", {
+                "small_file_id": getattr(chat.photo, "small_file_id", None),
+                "big_file_id": getattr(chat.photo, "big_file_id", None),
+            } if chat.photo else "N/A"),
+            ("dc_id", chat.dc_id),
+            ("phone_number", getattr(chat, "phone_number", "N/A")),
+            ("language_code", getattr(chat, "language_code", "N/A")),
         ])
-        
+
+        # Add additional information for groups, channels, etc.
+        if chat.type in [enums.ChatType.CHANNEL, enums.ChatType.SUPERGROUP, enums.ChatType.GROUP]:
+            response.update({
+                "is_creator": getattr(chat, "is_creator", False),
+                "is_forum": getattr(chat, "is_forum", False),
+                "has_protected_content": getattr(chat, "has_protected_content", False),
+                "member_count": getattr(chat, "members_count", "N/A"),
+                "slowmode_enabled": getattr(chat, "is_slowmode_enabled", False),
+            })
+
+        return response
+
     except errors.UsernameNotOccupied:
         return OrderedDict([
             ("status", "false"),
-            ("error", "Username not in use.")
+            ("error", "Username not in use."),
         ])
     except errors.UsernameInvalid:
         return OrderedDict([
             ("status", "false"),
-            ("error", "Invalid username.")
+            ("error", "Invalid username."),
         ])
     except errors.BadRequest as e:
         return OrderedDict([
             ("status", "false"),
-            ("error", f"Bad request: {str(e)}")
+            ("error", f"Bad request: {str(e)}"),
         ])
     except Exception as e:
         logging.error(f"Error fetching chat: {e}")
         return OrderedDict([
             ("status", "false"),
-            ("error", "An error occurred.")
+            ("error", "An error occurred."),
         ])
 
 @vj.route('/', methods=['GET'])
@@ -85,13 +114,13 @@ def get_user_id():
     if not username:
         return jsonify(OrderedDict([
             ("status", "false"),
-            ("error", "Username is required")
+            ("error", "Username is required"),
         ])), 400
 
     try:
         loop = app.loop
         future = asyncio.run_coroutine_threadsafe(
-            get_id_by_username(app, username), loop
+            get_chat_details(app, username), loop
         )
         chat_info = future.result()
 
@@ -101,13 +130,13 @@ def get_user_id():
         logging.error("No running event loop found.")
         return jsonify(OrderedDict([
             ("status", "false"),
-            ("error", "Internal server error")
+            ("error", "Internal server error"),
         ])), 500
     except Exception as e:
         logging.error(f"Error processing request: {e}")
         return jsonify(OrderedDict([
             ("status", "false"),
-            ("error", "Internal server error")
+            ("error", "Internal server error"),
         ])), 500
 
 def run_flask():
